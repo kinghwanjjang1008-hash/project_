@@ -8,3 +8,4 @@ if st.button('인삿말 생성'):
   st.warning(b+'이라는 친구를 좋아하시나봐요~ㅎ.ㅎ')
   st.error('잘 부탁합니듀')
   st.balloons()
+  st.bug()
