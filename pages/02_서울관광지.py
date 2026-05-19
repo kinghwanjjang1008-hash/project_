@@ -88,19 +88,17 @@ with col1:
             popup=folium.Popup(f"<b>{spot['name']}</b><br>{spot['subway']}", max_width=300),
             # 마우스 오버 시 지하철역이 바로 보이도록 tooltip 설정
             tooltip=f"ℹ️ {spot['name']} - 가장 가까운 역: {spot['subway']}",
-            # 노란색 마커 아이콘 지정
-            icon=folium.Icon(color="darktoggle", icon="star", icon_color="yellow")
+            # 노란색 마커 지정 (folium에서 기본 지원하는 가장 밝은 노란색 계열)
+            icon=folium.Icon(color="orange", icon="star")
         ).add_to(m)
         
     # 스트림릿에 폴리움 지도 렌더링
     st_folium(m, width="100%", height=550)
 
 with col2:
-    st.markdown("### 📌 퀵 내비게이션")
-    st.write("지도의 노란색 스타(🌟) 마커를 클릭하시면 상세 정보 팝업창을 보실 수 있습니다. 마우스를 올리면 지하철역 힌트가 나타나요!")
+    st.markdown("### 📌 퀵 가이드")
+    st.write("지도의 주황/노란색 스타(🌟) 마커에 마우스를 올리면 가까운 지하철역이 표시됩니다. 클릭하시면 팝업창도 뜹니다!")
     st.info("💡 팁: 도심권(경복궁, 명동, 북촌 등)은 서로 지하철로 10~15분 내외 거리에 촘촘히 모여 있습니다.")
-
----
 
 # 4. 지도 하단 관광지별 가이드 정보 제공
 st.markdown("---")
@@ -116,3 +114,4 @@ for i, spot in enumerate(tourist_spots):
         st.markdown(f"* **🚇 가까운 지하철역:** {spot['subway']}")
         st.markdown(f"* **🎯 주요 놀거리 & 추천 활동:** {spot['activities']}")
         st.markdown("<br>", unsafe_allow_html=True)
+        
