@@ -122,22 +122,22 @@ tourist_spots = [
     }
 ]
 
-# 3. 지도 레이아웃 배치 (지도를 약 60% 크기로 줄이기 위해 컬럼 비율 조정 및 정렬)
+# 3. 지도 레이아웃 배치 (지도를 중앙에 배치하여 약 60% 크기로 느낌 구현)
 st.markdown("### 🗺️ 서울 주요 관광지 지도")
 st.write("지도의 마커에 마우스를 올리면 가까운 지하철역이 표시되며, 클릭 시 상세 팝업창이 뜹니다.")
 
-# 양옆에 여백을 주어 지도를 중앙 배치하고 크기를 약 60% 느낌으로 슬림하게 구성
+# 양옆에 여백(1.2)을 주어 가운데 컬럼(2)의 지도가 화면의 대략 60% 정도를 차지하게 만듦
 m_col1, m_col2, m_col3 = st.columns([1.2, 2, 1.2])
 
 with m_col2:
-    # 한국어가 깔끔하게 나오고 색상이 선명한 국토교통부 브이월드(Vworld) 한국어 지도 타일 적용
-    vworld_url = "http://api.vworld.kr/req/wmts/1.0.0/739D2C97-7E1A-3990-9FB9-3F63351C813D/Base/{z}/{y}/{x}.png"
+    # 스트림릿 클라우드에서 완벽하게 한국어로 제공되며 색상이 선명한 구글 맵 타일셋 적용
+    google_map_url = "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
     
     m = folium.Map(
         location=[37.555, 126.985], 
         zoom_start=11,
-        tiles=vworld_url,
-        attr="Vworld"
+        tiles=google_map_url,
+        attr="Google"
     )
     
     # 지도에 관광지 마커 추가
@@ -149,8 +149,9 @@ with m_col2:
             icon=folium.Icon(color="orange", icon="star")
         ).add_to(m)
         
-    # 스트림릿에 폴리움 지도 렌더링 (가로 550px, 세로 400px로 기존 대비 약 60% 축소)
-    st_folium(m, width=550, height=400, returned_objects=[])
+    # 스트림릿에 폴리움 지도 렌더링 (크기를 축소하여 가로 550px, 세로 400px 설정)
+    # 아래 선택 상자를 누를 때 지도가 깨지거나 사라지지 않도록 key값을 명시해 둡니다.
+    st_folium(m, width=550, height=400, key="seoul_tour_map", returned_objects=[])
 
 # 4. 지도 하단 선택 메뉴 및 구체적인 가이드 정보 제공
 st.markdown("---")
