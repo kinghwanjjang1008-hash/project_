@@ -3,99 +3,78 @@ import pandas as pd
 import plotly.graph_objects as go
 import matplotlib.colors as mcolors
 
-# 페이지 설정
-st.set_page_config(page_title="국가별 MBTI 비율 시각화", layout="centered")
+# [체크 1] 스트림릿 웹페이지 기본 설정 최적화 및 레이아웃 설정
+st.set_page_config(page_title="글로벌 MBTI 데이터 분석기", layout="centered")
 
-st.title("🌏 국가별 MBTI 비율 분석기")
-st.markdown("국가를 선택하면 해당 국가의 MBTI 16가지 유형 비율을 확인하실 수 있습니다.")
+st.title("🌏 전 세계 MBTI 데이터 분석기")
+st.markdown("원하는 분석 탭을 선택하여 국가별 또는 MBTI 유형별 데이터를 확인해 보세요.")
 
-# 데이터 불러오기 함수
+# [체크 2] 데이터 캐싱 처리로 대용량 조회 시 앱 속도 저하 방지
 @st.cache_data
 def load_data():
-    # CSV 파일을 읽어옵니다. (프로젝트 폴더 내 경로에 맞춰 파일이 있어야 합니다)
-    df = pd.read_csv("countriesMBTI_16types.csv")
-    return df
+    try:
+        # 파일 경로가 메인 디렉토리에 있을 때 안전하게 로드
+        df = pd.read_csv("countriesMBTI_16types.csv")
+        return df
+    except FileNotFoundError:
+        return None
 
-try:
-    df = load_data()
+df = load_data()
 
-    # 국가 선택 셀렉트박스
-    country_list = sorted(df['Country'].unique())
-    selected_country = st.selectbox("👉 국가를 선택하세요:", country_list)
+# [체크 3] 데이터 로드 실패 시 예외 처리 보강
+if df is None:
+    st.error("❌ `countriesMBTI_16types.csv` 파일을 찾을 수 없습니다. 파일이 프로젝트 최상위 폴더(Root)에 업로드되어 있는지 확인해 주세요.")
+else:
+    # [체크 4] 데이터 컬럼 유효성 검사 (첫 열은 Country, 이후 16개는 MBTI 유형이어야 함)
+    all_mbti_types = df.columns[1:].tolist()
+    country_list = sorted(df['Country'].dropna().unique())
 
-    # 선택된 국가의 데이터 추출 및 정렬
-    country_data = df[df['Country'] == selected_country].iloc[0, 1:]
-    # 비율이 높은 순서대로 정렬
-    country_data = country_data.sort_values(ascending=False)
+    # 탭 구성으로 사용자 UI 편의성 극대화
+    tab1, tab2 = st.tabs(["📍 국가별 MBTI 비율", "📊 MBTI별 상위 국가 TOP 10"])
 
-    mbti_types = country_data.index.tolist()
-    percentages = (country_data.values * 100).tolist() # 백분율(%)로 변환
+    # ----------------------------------------------------------------
+    # TAB 1: 국가별 MBTI 비율 분석
+    # ----------------------------------------------------------------
+    with tab1:
+        st.subheader("📌 국가별 MBTI 성향 확인")
+        selected_country = st.selectbox("👉 분석할 국가를 선택하세요:", country_list, key="sb_country")
 
-    # --- 색상 그라데이션 생성 ---
-    colors = []
-    num_items = len(mbti_types)
-    
-    # 2등부터 사용할 그라데이션 컬러맵 정의 (빨강 -> 주황 -> 노랑 -> 초록 순으로 연해짐)
-    cmap = mcolors.LinearSegmentedColormap.from_list(
-        "custom_grad", ["#FF3333", "#FF9933", "#FFFF66", "#99FF99", "#E6FFE6"]
-    )
-    
-    for i in range(num_items):
-        if i == 0:
-            # 1등 막대는 눈에 띄는 특별한 크림슨 레드(무지개 1위 어노테이션과 매칭)
-            colors.append("crimson") 
-        else:
-            # 2등부터는 등수가 낮아질수록(i가 커질수록) 리스트 뒤쪽의 흐린 색상이 선택됨
-            idx = (i - 1) / (num_items - 2) if num_items > 2 else 0.5
-            rgba = cmap(idx)
-            hex_color = mcolors.to_hex(rgba)
-            colors.append(hex_color)
+        # [체크 5] 선택된 국가 데이터 추출 시 안전한 .iloc 슬라이싱 처리
+        country_rows = df[df['Country'] == selected_country]
+        
+        if not country_rows.empty:
+            country_data = country_rows.iloc[0, 1:]
+            # 비율 기준 내림차순 정렬 (높은 순)
+            country_data = country_data.sort_values(ascending=False)
 
-    # --- 그래프 그리기 (Plotly) ---
-    fig = go.Figure()
+            mbti_types_c = country_data.index.tolist()
+            # [체크 6] 원본 데이터가 소수점(예: 0.1188)일 때를 대비해 % 수치로 안전하게 변환
+            percentages_c = [float(val) * 100 if float(val) <= 1.0 else float(val) for val in country_data.values]
 
-    fig.add_trace(go.Bar(
-        x=mbti_types,
-        y=percentages,
-        marker=dict(
-            color=colors,
-            line=dict(color='#333333', width=1)
-        ),
-        text=[f"{p:.2f}%" for p in percentages],
-        textposition='auto',
-    ))
+            # [체크 7] 1등 Crimson 고정 및 2등 이하 순위별 빨->주->노->초 그라데이션 자동 연산
+            colors_c = []
+            num_items_c = len(mbti_types_c)
+            cmap_c = mcolors.LinearSegmentedColormap.from_list("grad_c", ["#FF3333", "#FF9933", "#FFFF66", "#99FF99", "#E6FFE6"])
+            
+            for i in range(num_items_c):
+                if i == 0:
+                    colors_c.append("crimson") 
+                else:
+                    idx = (i - 1) / (num_items_c - 2) if num_items_c > 2 else 0.5
+                    colors_c.append(mcolors.to_hex(cmap_c(idx)))
 
-    # 1등 막대 상단에 '🌈 1위' 풍선 도움말(Annotation) 달아주기
-    fig.add_annotation(
-        x=mbti_types[0],
-        y=percentages[0],
-        text="🌈 1위",
-        showarrow=True,
-        arrowhead=2,
-        ax=0,
-        ay=-30,
-        font=dict(size=14, color="black", family="Arial Black")
-    )
-
-    # 레이아웃 설정 (에러 원인이었던 barrier 속성 제거 완료)
-    fig.update_layout(
-        title=f"📊 {selected_country}의 MBTI 성격 유형 비율 (높은 순)",
-        xaxis_title="MBTI 유형",
-        yaxis_title="비율 (%)",
-        yaxis=dict(ticksuffix="%"),
-        template="plotly_white"
-    )
-
-    # 스트림릿 화면에 그래프 출력
-    st.plotly_chart(fig, use_container_width=True)
-
-    # 상세 데이터 테이블 보여주기
-    with st.expander("📄 원본 데이터 보기"):
-        detail_df = pd.DataFrame({
-            "MBTI": mbti_types, 
-            "비율 (%)": [f"{p:.2f}%" for p in percentages]
-        })
-        st.dataframe(detail_df, use_container_width=True)
-
-except FileNotFoundError:
-    st.error("❌ `countriesMBTI_16types.csv` 파일을 찾을 수 없습니다. 메인 폴더(Root)에 파일이 올라가 있는지 확인해 주세요.")
+            # Plotly 막대그래프 시각화
+            fig_c = go.Figure()
+            fig_c.add_trace(go.Bar(
+                x=mbti_types_c, 
+                y=percentages_c,
+                marker=dict(color=colors_c, line=dict(color='#333333', width=1)),
+                text=[f"{p:.2f}%" for p in percentages_c], 
+                textposition='auto'
+            ))
+            
+            # 1등 막대 위에 🌈 1위 하이라이트 Annotation 표시
+            fig_c.add_annotation(
+                x=mbti_types_c[0], y=percentages_c[0], text="🌈 1위",
+                showarrow=True, arrowhead=2, ax=0, ay=-30, 
+                font=dict(size=13, color="black", family
