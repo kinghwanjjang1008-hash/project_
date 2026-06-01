@@ -9,7 +9,12 @@ st.markdown("공공데이터 기반 행정구역별 인구수 꺾은선 그래�
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv("population.csv", encoding="utf-8")
+    # 인코딩 에러 방지를 위해 cp949를 먼저 시도하고, 실패 시 euc-kr로 읽도록 설정
+    try:
+        df = pd.read_csv("population.csv", encoding="cp949")
+    except:
+        df = pd.read_csv("population.csv", encoding="euc-kr")
+        
     df.columns = df.columns.str.strip()
     
     for col in df.columns:
