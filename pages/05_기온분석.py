@@ -32,19 +32,22 @@ def load_data(path):
         df['날짜'] = pd.to_datetime(df['날짜'].str.strip(), errors='coerce')
         df = df.dropna(subset=['날짜'])
     
-    # 기온 데이터 숫자형 변환
+    # 기온 데이터 숫자형 변환 및 결측치 제거 예외 처리 수정
+    dropna_cols = []
     if '최고기온' in df.columns:
         df['최고기온'] = pd.to_numeric(df['최고기온'], errors='coerce')
+        dropna_cols.append('최고기온')
     if '최저기온' in df.columns:
         df['최저기온'] = pd.to_numeric(df['최저기온'], errors='coerce')
+        dropna_cols.append('최저기온')
         
-    # 기온 결측치 최종 제거
-    df = df.dropna(subset=['최고기온', '최저기온'])
+    # 존재하는 컬럼에 대해서만 결측치 제거
+    if dropna_cols:
+        df = df.dropna(subset=dropna_cols)
     
     return df
 
 # 3. 파일 경로 설정 (지정된 경로 또는 현재 폴더 내 seoul.csv 검색)
-# 팁: 스트림릿 클라우드에서는 메인 폴더 기준 루트에 파일을 두는 것이 가장 안전합니다.
 possible_paths = ['seoul.csv', '../seoul.csv', 'pages/seoul.csv']
 csv_path = None
 
@@ -67,7 +70,7 @@ else:
 # 4. 사이드바 - 날짜 선택 기능
 st.sidebar.header("📅 조회 기간 설정")
 min_date = df['날짜'].min().to_pydatetime()
-max_date = df['max_date' if 'max_date' in locals() else '날짜'].max().to_pydatetime()
+max_date = df['날짜'].max().to_pydatetime()
 
 # 사용자 날짜 범위 선택 (시작일, 종료일)
 start_date, end_date = st.sidebar.date_input(
@@ -84,18 +87,19 @@ filtered_df = df[(df['날짜'] >= pd.to_datetime(start_date)) & (df['날짜'] <=
 st.subheader(f"📈 {start_date} ~ {end_date} 기온 변화 그래프")
 
 if not filtered_df.empty:
-    # 스트림릿 클라우드(리눅스) 환경을 고려하여 그래프 내부 텍스트는 영문 표기 (한글 깨짐 방지)
     fig, ax = plt.subplots(figsize=(12, 6))
     
-    # 배경색 흰색 설정 (요청 반영)
+    # 배경색 흰색 설정
     fig.patch.set_facecolor('white')
     ax.set_facecolor('white')
     
     # 꺾은선 그래프 그리기
-    ax.plot(filtered_df['날짜'], filtered_df['최고기온'], label='Max Temp', color='#ff4b4b', linewidth=2)
-    ax.plot(filtered_df['날짜'], filtered_df['최저기온'], label='Min Temp', color='#1f77b4', linewidth=2)
+    if '최고기온' in filtered_df.columns:
+        ax.plot(filtered_df['날짜'], filtered_df['최고기온'], label='Max Temp', color='#ff4b4b', linewidth=2)
+    if '최저기온' in filtered_df.columns:
+        ax.plot(filtered_df['날짜'], filtered_df['최저기온'], label='Min Temp', color='#1f77b4', linewidth=2)
     
-    # 스타일 지정
+    # 스타일 지정 (스트림릿 클라우드 한글 깨짐 방지를 위해 영문 레이블 사용)
     ax.set_xlabel('Date', fontsize=12)
     ax.set_ylabel('Temperature (℃)', fontsize=12)
     ax.legend(loc='upper right')
@@ -106,6 +110,9 @@ if not filtered_df.empty:
     
     # 하단 데이터 테이블 확장형태로 제공
     with st.expander("📊 선택한 기간 데이터 보기 (상세 테이블)"):
-        st.dataframe(filtered_df[['날짜', '최저기온', '최고기온']].sort_values('날짜'), use_container_width=True)
+        show_cols = ['날짜']
+        if '최저기온' in filtered_df.columns: show_cols.append('최저기온')
+        if '최고기온' in filtered_df.columns: show_cols.append('최고기온')
+        st.dataframe(filtered_df[show_cols].sort_values('날짜'), use_container_width=True)
 else:
     st.warning("⚠️ 선택한 기간에 해당하는 데이터가 없습니다. (결측치 구간 여부 확인 요망)")
