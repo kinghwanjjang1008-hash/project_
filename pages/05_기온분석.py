@@ -3,77 +3,109 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
-# 한글 폰트 설정 (Streamlit Cloud 환경 고려)
-plt.rcParams['font.family'] = 'NanumGothic' or 'Malgun Gothic' or 'sans-serif'
-plt.rcParams['axes.unicode_minus'] = False
+# 1. 페이지 설정
+st.set_page_config(page_title="서울 기온 데이터 분석", layout="wide")
+st.title("🌡️ 서울 기온 데이터 분석 웹 앱")
 
-st.title("📅 서울 일별 기온 변화 조회")
-st.write("원하는 월과 일을 선택하면 역대 해당 날짜의 최고/최저 기온 추이를 보여줍니다.")
-
-# 1. 데이터 로드 (상위 폴더의 seoul.csv 읽기)
-csv_path = os.path.join("..", "seoul.csv")
-
+# 2. 데이터 로드 함수 (자동 인코딩 추적 및 캐싱 처리)
 @st.cache_data
 def load_data(path):
-    if not os.path.exists(path):
-        # 로컬 환경이나 경로 에러 방지를 위해 현재 디렉토리도 확인
-        if os.path.exists("seoul.csv"):
-            path = "seoul.csv"
-        else:
-            st.error("❌ seoul.csv 파일을 찾을 수 없습니다. 경로를 확인해주세요.")
-            return None
+    # 한국어 데이터셋에서 자주 쓰이는 인코딩 목록
+    encodings = ['cp949', 'euc-kr', 'utf-8', 'utf-8-sig']
+    
+    df = None
+    for encode in encodings:
+        try:
+            df = pd.read_csv(path, encoding=encode)
+            break  # 읽기 성공 시 루프 탈출
+        except (UnicodeDecodeError, ValueError):
+            continue
             
-    df = pd.read_csv(path, encoding='utf-8')
+    if df is None:
+        raise ValueError("파일의 인코딩을 찾을 수 없습니다. 파일 형식을 확인해주세요.")
+
+    # 컬럼명 양끝 공백 제거 (기상청 데이터 특성)
+    df.columns = df.columns.str.strip()
     
-    # 날짜 데이터 앞뒤 공백 및 탭 문자 제거
-    df['날짜'] = df['날짜'].astype(str).str.strip()
+    # 날짜 데이터 변환 및 결측치 제거
+    if '날짜' in df.columns:
+        df['날짜'] = pd.to_datetime(df['날짜'].str.strip(), errors='coerce')
+        df = df.dropna(subset=['날짜'])
     
-    # datetime 형태로 변환 (변환 실패 시 NaT 처리)
-    df['날짜'] = pd.to_datetime(df['날짜'], errors='coerce')
-    df = df.dropna(subset=['날짜'])
-    
-    # 월, 일 컬럼 생성
-    df['Month'] = df['날짜'].dt.month
-    df['Day'] = df['날짜'].dt.day
-    df['Year'] = df['날짜'].dt.year
+    # 기온 데이터 숫자형 변환
+    if '최고기온' in df.columns:
+        df['최고기온'] = pd.to_numeric(df['최고기온'], errors='coerce')
+    if '최저기온' in df.columns:
+        df['최저기온'] = pd.to_numeric(df['최저기온'], errors='coerce')
+        
+    # 기온 결측치 최종 제거
+    df = df.dropna(subset=['최고기온', '최저기온'])
     
     return df
 
-df = load_data(csv_path)
+# 3. 파일 경로 설정 (지정된 경로 또는 현재 폴더 내 seoul.csv 검색)
+# 팁: 스트림릿 클라우드에서는 메인 폴더 기준 루트에 파일을 두는 것이 가장 안전합니다.
+possible_paths = ['seoul.csv', '../seoul.csv', 'pages/seoul.csv']
+csv_path = None
 
-if df is not None:
-    # 2. 사이드바에서 월/일 선택 UI 구성
-    st.sidebar.header("🗓️ 날짜 선택")
-    selected_month = st.sidebar.selectbox("월(Month)을 선택하세요", list(range(1, 13)), index=5) # 기본값 6월
+for p in possible_paths:
+    if os.path.exists(p):
+        csv_path = p
+        break
+
+# 데이터 불러오기 실행
+if csv_path:
+    try:
+        df = load_data(csv_path)
+    except Exception as e:
+        st.error(f"데이터를 처리하는 중 에러가 발생했습니다: {e}")
+        st.stop()
+else:
+    st.error("📂 'seoul.csv' 파일을 찾을 수 없습니다. 파일이 깃허브 저장소에 업로드되었는지 확인해주세요.")
+    st.stop()
+
+# 4. 사이드바 - 날짜 선택 기능
+st.sidebar.header("📅 조회 기간 설정")
+min_date = df['날짜'].min().to_pydatetime()
+max_date = df['max_date' if 'max_date' in locals() else '날짜'].max().to_pydatetime()
+
+# 사용자 날짜 범위 선택 (시작일, 종료일)
+start_date, end_date = st.sidebar.date_input(
+    "조회할 범위를 선택하세요",
+    value=(min_date, max_date),
+    min_value=min_date,
+    max_value=max_date
+)
+
+# 5. 데이터 필터링
+filtered_df = df[(df['날짜'] >= pd.to_datetime(start_date)) & (df['날짜'] <= pd.to_datetime(end_date))]
+
+# 6. 그래프 시각화 (바탕색: 흰색)
+st.subheader(f"📈 {start_date} ~ {end_date} 기온 변화 그래프")
+
+if not filtered_df.empty:
+    # 스트림릿 클라우드(리눅스) 환경을 고려하여 그래프 내부 텍스트는 영문 표기 (한글 깨짐 방지)
+    fig, ax = plt.subplots(figsize=(12, 6))
     
-    # 선택한 월에 맞는 일 수 계산 (단순화하여 1~31일 제공 후 데이터 필터링)
-    selected_day = st.sidebar.selectbox("일(Day)을 선택하세요", list(range(1, 32)), index=3) # 기본값 4일
+    # 배경색 흰색 설정 (요청 반영)
+    fig.patch.set_facecolor('white')
+    ax.set_facecolor('white')
     
-    # 3. 데이터 필터링
-    filtered_df = df[(df['Month'] == selected_month) & (df['Day'] == selected_day)].sort_values('Year')
+    # 꺾은선 그래프 그리기
+    ax.plot(filtered_df['날짜'], filtered_df['최고기온'], label='Max Temp', color='#ff4b4b', linewidth=2)
+    ax.plot(filtered_df['날짜'], filtered_df['최저기온'], label='Min Temp', color='#1f77b4', linewidth=2)
     
-    if filtered_df.empty:
-        st.warning(f"⚠️ {selected_month}월 {selected_day}일에 해당하는 데이터가 없습니다.")
-    else:
-        st.subheader(f"📈 역대 {selected_month}월 {selected_day}일 기온 변화")
-        
-        # 4. 꺾은선 그래프 그리기
-        fig, ax = plt.subplots(figsize=(10, 5))
-        
-        # 최고기온: 빨강(red), 최저기온: 연한 파랑(lightblue)
-        ax.plot(filtered_df['Year'], filtered_df['최고기온(℃)'], marker='o', color='red', label='최고기온(℃)', linewidth=2)
-        ax.plot(filtered_df['Year'], filtered_df['최저기온(℃)'], marker='o', color='lightblue', label='최저기온(℃)', linewidth=2)
-        
-        ax.set_title(f"Every {selected_month}/{selected_day} Temperature Trend", fontsize=14)
-        ax.set_xlabel("연도 (Year)", fontsize=11)
-        ax.set_ylabel("기온 (Temperature ℃)", fontsize=11)
-        ax.grid(True, linestyle='--', alpha=0.6)
-        ax.legend()
-        
-        # 스트림릿에 그래프 출력
-        st.pyplot(fig)
-        
-        # 5. 데이터 테이블 보여주기 (선택사항)
-        with st.expander("📊 상세 데이터 보기"):
-            view_df = filtered_df[['Year', '평균기온(℃)', '최저기온(℃)', '최고기온(℃)']].reset_index(drop=True)
-            st.dataframe(view_df)
+    # 스타일 지정
+    ax.set_xlabel('Date', fontsize=12)
+    ax.set_ylabel('Temperature (℃)', fontsize=12)
+    ax.legend(loc='upper right')
+    ax.grid(True, linestyle='--', alpha=0.5)
+    
+    # 스트림릿 화면에 출력
+    st.pyplot(fig)
+    
+    # 하단 데이터 테이블 확장형태로 제공
+    with st.expander("📊 선택한 기간 데이터 보기 (상세 테이블)"):
+        st.dataframe(filtered_df[['날짜', '최저기온', '최고기온']].sort_values('날짜'), use_container_width=True)
+else:
+    st.warning("⚠️ 선택한 기간에 해당하는 데이터가 없습니다. (결측치 구간 여부 확인 요망)")
