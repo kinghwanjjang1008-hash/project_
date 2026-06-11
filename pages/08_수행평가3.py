@@ -7,7 +7,6 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="공항별 출입국 심층 분석 대시보드", layout="wide")
 
 # 2. 자유롭게 움직이는 승무원 스티커 HTML/CSS/JS 주입
-# 마우스나 터치로 화면 어디든 드래그하여 이동시킬 수 있는 승무원 이모지 스티커입니다.
 st.markdown("""
     <div id="crew-sticker" style="
         position: fixed;
@@ -47,7 +46,6 @@ st.markdown("""
             isDragging = false;
         });
         
-        // 모바일 터치 이벤트 지원
         sticker.addEventListener('touchstart', (e) => {
             isDragging = true;
             const touch = e.touches[0];
@@ -70,19 +68,22 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
-# 3. 데이터 로드 및 파생변수 생성 (인코딩 오류 완벽 해결 및 의미 도출)
+# 3. 데이터 로드 및 파생변수 생성 (TypeError 및 인코딩 오류 완벽 해결)
 @st.cache_data
 def load_data():
     file_path = "법무부_항공기 및 승무원에 대한 국적별 공항별 출입국 현황_20241231 (1).csv"
     
-    # cp949 인코딩 및 에러 무시 옵션으로 UnicodeDecodeError 원천 차단
-    df = pd.read_csv(file_path, encoding='cp949', errors='ignore')
+    # cp949 인코딩을 적용하고, 판다스 버전에 맞는 encoding_errors 인자를 사용하여 TypeError를 방지합니다.
+    df = pd.read_csv(file_path, encoding='cp949', encoding_errors='ignore')
     
-    # [의미 추가 1] 항공기 1대당 승무원 배정 비율 (밀도) 계산 -> 대형기/장거리 노선 위주 공항 파악 지표
+    # 공항별 텍스트 공백 제거 (예: '사 천 항' -> '사천항')
+    df['공항별'] = df['공항별'].str.replace(' ', '')
+    
+    # [의미 추가 1] 항공기 1대당 승무원 배정 비율 (밀도) 계산
     df['입항_항공기당승무원수'] = df.apply(lambda r: round(r['입항승무원수'] / r['입항항공기수'], 1) if r['입항항공기수'] > 0 else 0, axis=1)
     df['출항_항공기당승무원수'] = df.apply(lambda r: round(r['출항승무원수'] / r['출항항공기수'], 1) if r['출항항공기수'] > 0 else 0, axis=1)
     
-    # [의미 추가 2] 출입국 수지 불균형 지표 (출항 - 입항) -> 교통 흐름 유입/유출 추이 파악 지표
+    # [의미 추가 2] 출입국 수지 불균형 지표 (출항 - 입항)
     df['항공기_출입차이'] = df['출항항공기수'] - df['입항항공기수']
     df['승무원_출입차이'] = df['출항승무원수'] - df['입항승무원수']
     
@@ -115,7 +116,7 @@ with col3:
 
 st.markdown("---")
 
-# 6. 분석 탭 구조 (기본 현황 + 의미 분석 2가지)
+# 6. 분석 탭 구조
 tab1, tab2, tab3 = st.tabs(["📊 기본 현황 조회", "💡 [인사이트] 항공기당 승무원 밀도", "⚖️ [인사이트] 출입국 흐름 불균형"])
 
 # --- TAB 1: 기본 현황 조회 (브라운 테마) ---
@@ -126,12 +127,12 @@ with tab1:
     if data_type == "항공기 수":
         fig1 = px.bar(
             df, x="공항별", y=["입항항공기수", "출항항공기수"], barmode="group",
-            title="공항별 항공기 통계", color_discrete_sequence=['#4A3525', '#8B5A2B'] # 다크브라운, 미디엄브라운
+            title="공항별 항공기 통계", color_discrete_sequence=['#4A3525', '#8B5A2B']
         )
     else:
         fig1 = px.bar(
             df, x="공항별", y=["입항승무원수", "출항승무원수"], barmode="group",
-            title="공항별 승무원 통계", color_discrete_sequence=['#8B4513', '#CD853F'] # 새들브라운, 페루브라운
+            title="공항별 승무원 통계", color_discrete_sequence=['#8B4513', '#CD853F']
         )
         
     fig1.update_layout(
@@ -153,11 +154,10 @@ with tab2:
     fig2 = px.bar(
         df, x="공항별", y=["입항_항공기당승무원수", "출항_항공기당승무원수"], barmode="group",
         title="공항별 항공기 1대당 탑승 승무원 비율 (운항 규모 지표)",
-        color_discrete_sequence=['#A0522D', '#DEB887'], # 시엔나브라운, 버리우드
+        color_discrete_sequence=['#A0522D', '#DEB887'],
         labels={"value": "평균 승무원 수 (명)", "variable": "구분"}
     )
     
-    # 가독성을 돕기 위한 전국 평균 가이드라인 선(Dash line) 추가
     fig2.add_hline(y=avg_crew_per_plane, line_dash="dash", line_color="#4A3525", 
                   annotation_text=f"전국 평균 ({avg_crew_per_plane}명)", annotation_position="top left")
     
@@ -174,8 +174,8 @@ with tab2:
 with tab3:
     st.subheader("⚖️ 입항과 출항의 차이 분석 (수지 및 흐름 불균형)")
     st.markdown("""
-        **💡 분석의 의미:** * **(+) 양수 값 (위로 솟은 바):** 들어온 것보다 **나간 것(출항)이 많음** (해당 공항을 기점으로 출발하는 승무원 교대 스케줄 편중 현상 등)
-        * **(-) 음수 값 (아래로 꺼진 바):** 들어온 것보다 **덜 나감** (공항 내 임시 체류 항공기 증가 또는 스케줄 불일치 현상 반영)
+        **💡 분석의 의미:** * **(+) 양수 값 (위로 솟은 바):** 들어온 것보다 **나간 것(출항)이 많음**
+        * **(-) 음수 값 (아래로 꺼진 바):** 들어온 것보다 **덜 나감**
     """)
     
     diff_type = st.selectbox("분석할 대상을 선택하세요", ["승무원 출입 차이 (출항-입항)", "항공기 출입 차이 (출항-입항)"])
@@ -195,7 +195,6 @@ with tab3:
         color_discrete_sequence=[bar_color]
     )
     
-    # 중심 기준선(0) 강조
     fig3.add_hline(y=0, line_color="black", line_width=1.5)
     fig3.update_layout(
         plot_bgcolor='white', paper_bgcolor='white', 
