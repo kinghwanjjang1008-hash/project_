@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import datetime
+import plotly.graph_objects as go  # 렌더링 오류가 없는 독립형 차트 라이브러리
 
 # 1. 페이지 설정
 st.set_page_config(page_title="서울 기온 데이터 분석", layout="wide")
@@ -23,7 +24,7 @@ def load_data(path):
     if df is None:
         raise ValueError("파일의 인코딩을 찾을 수 없습니다. 파일 형식을 확인해주세요.")
 
-    # 컬럼명 양끝 공백 제거 (기상청 데이터 고유 특성 해결)
+    # 컬럼명 양끝 공백 제거 (기상청 데이터 공백 해결)
     df.columns = df.columns.str.strip()
     
     # 날짜 데이터 변환 및 결측치 제거
@@ -62,17 +63,17 @@ if csv_path:
         st.error(f"데이터를 처리하는 중 에러가 발생했습니다: {e}")
         st.stop()
 else:
-    st.error("📂 'seoul.csv' 파일을 찾을 수 없습니다. 파일이 깃허브 저장소에 업로드되었는지 확인해주세요.")
+    st.error("📂 'seoul.csv' 파일을 찾을 수 없습니다. 파일이 깃허브 저장소에 올바르게 업로드되었는지 확인해주세요.")
     st.stop()
 
-# 4. 사이드바 - 날짜 선택 기능 (스트림릿 클라우드 전용 안전한 세팅)
+# 4. 사이드바 - 날짜 선택 기능
 st.sidebar.header("📅 조회 기간 설정")
 
 # 판다스 Timestamp -> 순수 파이썬 date 객체로 안전하게 변환
 min_date = df['날짜'].min().date()
 max_date = df['날짜'].max().date()
 
-# 기본 선택값은 마지막 날짜 기준 1년 전부터 마지막 날짜까지로 설정 (안전성 확보)
+# 기본 선택값은 마지막 날짜 기준 1년 전부터 마지막 날짜까지로 세팅 (안전성 확보)
 start_default = max(min_date, max_date - pd.Timedelta(days=365))
 
 # 안전하게 세팅된 date 객체들을 입력
@@ -83,33 +84,68 @@ date_range = st.sidebar.date_input(
     max_value=max_date
 )
 
-# 사용자가 두 날짜(시작일, 종료일)를 모두 선택했을 때만 필터링 및 그래프 출력
+# 사용자가 시작일과 종료일을 모두 선택했을 때만 필터링 및 그래프 출력
 if isinstance(date_range, tuple) and len(date_range) == 2:
     start_date, end_date = date_range
     
-    # 5. 데이터 필터링
+    # 5. 데이터 필터링 및 정렬
     filtered_df = df[(df['날짜'].dt.date >= start_date) & (df['날짜'].dt.date <= end_date)]
+    filtered_df = filtered_df.sort_values('날짜')
 
-    # 6. 그래프 시각화 (스트림릿 내장 고성능 차트 사용 -> 흰색 바탕 고정 및 마우스 오버 지원)
     st.subheader(f"📈 {start_date} ~ {end_date} 기온 변화 그래프")
 
     if not filtered_df.empty:
-        # X축을 '날짜'로 잡기 위해 인덱스로 설정
-        chart_data = filtered_df.set_index('날짜')
+        # 6. Plotly를 통한 바탕색 흰색 고정 그래프 정의
+        fig = go.Figure()
         
-        # 표시할 컬럼 선택
-        cols_to_show = []
-        if '최고기온' in chart_data.columns: cols_to_show.append('최고기온')
-        if '최저기온' in chart_data.columns: cols_to_show.append('최저기온')
+        # 최고기온 선 (빨간색)
+        if '최고기온' in filtered_df.columns:
+            fig.add_trace(go.Scatter(
+                x=filtered_df['날짜'], 
+                y=filtered_df['최고기온'], 
+                mode='lines',
+                name='최고기온(Max)',
+                line=dict(color='#ff4b4b', width=2)
+            ))
+            
+        # 최저기온 선 (파란색)
+        if '최저기온' in filtered_df.columns:
+            fig.add_trace(go.Scatter(
+                x=filtered_df['날짜'], 
+                y=filtered_df['최저기온'], 
+                mode='lines',
+                name='최저기온(Min)',
+                line=dict(color='#1f77b4', width=2)
+            ))
+            
+        # 그래프 스타일 강제 지정 (바탕색 흰색 및 축 글자 검은색 고정)
+        fig.update_layout(
+            plot_bgcolor='white',    # 내부 차트 영역 배경색
+            paper_bgcolor='white',   # 외부 컴포넌트 영역 배경색
+            font=dict(color='black'),# 전체 글꼴 색상
+            xaxis=dict(
+                showgrid=True, 
+                gridcolor='rgba(220, 220, 220, 0.5)', 
+                title="Date"
+            ),
+            yaxis=dict(
+                showgrid=True, 
+                gridcolor='rgba(220, 220, 220, 0.5)', 
+                title="Temperature (℃)"
+            ),
+            margin=dict(l=40, r=40, t=20, b=40),
+            hovermode="x unified"    # 마우스 커서를 올리면 해당 날짜의 최고/최저 기온이 툴팁으로 동시에 팝업
+        )
         
-        if cols_to_show:
-            # 깔끔하게 흰색 바탕 테마를 따라가는 에러 없는 라인 차트
-            st.line_chart(chart_data[cols_to_show], y_label="기온 (℃)")
+        # 스트림릿에 Plotly 차트 출력
+        st.plotly_chart(fig, use_container_width=True)
         
         # 7. 하단 데이터 테이블 확장형태 제공
         with st.expander("📊 선택한 기간 데이터 보기 (상세 테이블)"):
-            show_cols = ['날짜'] + cols_to_show
-            st.dataframe(filtered_df[show_cols].sort_values('날짜'), use_container_width=True)
+            show_cols = ['날짜']
+            if '최저기온' in filtered_df.columns: show_cols.append('최저기온')
+            if '최고기온' in filtered_df.columns: show_cols.append('최고기온')
+            st.dataframe(filtered_df[show_cols], use_container_width=True)
     else:
         st.warning("⚠️ 선택한 기간에 해당하는 데이터가 없습니다.")
 else:
