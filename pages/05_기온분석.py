@@ -2,17 +2,16 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import datetime
-import plotly.graph_objects as go  # 렌더링 오류가 없는 독립형 차트 라이브러리
+import plotly.graph_objects as go
 
 # 1. 페이지 설정
 st.set_page_config(page_title="서울 기온 데이터 분석", layout="wide")
 st.title("🌡️ 서울 기온 데이터 분석 웹 앱")
 
-# 2. 데이터 로드 함수 (자동 인코딩 추적 및 캐싱 처리)
+# 2. 데이터 로드 함수 (자동 인코딩 및 컬럼 자동 매핑)
 @st.cache_data
 def load_data(path):
     encodings = ['cp949', 'euc-kr', 'utf-8', 'utf-8-sig']
-    
     df = None
     for encode in encodings:
         try:
@@ -24,15 +23,24 @@ def load_data(path):
     if df is None:
         raise ValueError("파일의 인코딩을 찾을 수 없습니다. 파일 형식을 확인해주세요.")
 
-    # 컬럼명 양끝 공백 제거 (기상청 데이터 공백 해결)
+    # 컬럼명 글자 양끝 공백 전처리
     df.columns = df.columns.str.strip()
     
-    # 날짜 데이터 변환 및 결측치 제거
+    # [핵심 수정] 컬럼명 유연하게 찾기 (ex: '최고기온(℃)', '최고 기온' 모두 잡아냄)
+    for col in df.columns:
+        if '날짜' in col:
+            df = df.rename(columns={col: '날짜'})
+        elif '최고' in col:
+            df = df.rename(columns={col: '최고기온'})
+        elif '최저' in col:
+            df = df.rename(columns={col: '최저기온'})
+
+    # 날짜 처리
     if '날짜' in df.columns:
-        df['날짜'] = pd.to_datetime(df['날짜'].str.strip(), errors='coerce')
+        df['날짜'] = pd.to_datetime(df['날짜'].astype(str).str.strip(), errors='coerce')
         df = df.dropna(subset=['날짜'])
     
-    # 기온 데이터 숫자형 변환 및 결측치 처리
+    # 기온 데이터 숫자형 변환 및 결측치 제거
     dropna_cols = []
     if '최고기온' in df.columns:
         df['최고기온'] = pd.to_numeric(df['최고기온'], errors='coerce')
@@ -46,7 +54,7 @@ def load_data(path):
     
     return df
 
-# 3. 파일 경로 설정 (경로 유연성 확보)
+# 3. 파일 경로 설정
 possible_paths = ['seoul.csv', '../seoul.csv', 'pages/seoul.csv']
 csv_path = None
 
@@ -63,20 +71,17 @@ if csv_path:
         st.error(f"데이터를 처리하는 중 에러가 발생했습니다: {e}")
         st.stop()
 else:
-    st.error("📂 'seoul.csv' 파일을 찾을 수 없습니다. 파일이 깃허브 저장소에 올바르게 업로드되었는지 확인해주세요.")
+    st.error("📂 'seoul.csv' 파일을 찾을 수 없습니다. 파일명을 확인해주세요.")
     st.stop()
 
 # 4. 사이드바 - 날짜 선택 기능
 st.sidebar.header("📅 조회 기간 설정")
 
-# 판다스 Timestamp -> 순수 파이썬 date 객체로 안전하게 변환
 min_date = df['날짜'].min().date()
 max_date = df['날짜'].max().date()
-
-# 기본 선택값은 마지막 날짜 기준 1년 전부터 마지막 날짜까지로 세팅 (안전성 확보)
+# 기본 데이터는 너무 방대하지 않게 최근 1달 또는 1년 정도로 시작 유도
 start_default = max(min_date, max_date - pd.Timedelta(days=365))
 
-# 안전하게 세팅된 date 객체들을 입력
 date_range = st.sidebar.date_input(
     "조회할 범위를 선택하세요",
     value=(start_default, max_date),
@@ -84,7 +89,6 @@ date_range = st.sidebar.date_input(
     max_value=max_date
 )
 
-# 사용자가 시작일과 종료일을 모두 선택했을 때만 필터링 및 그래프 출력
 if isinstance(date_range, tuple) and len(date_range) == 2:
     start_date, end_date = date_range
     
@@ -95,52 +99,51 @@ if isinstance(date_range, tuple) and len(date_range) == 2:
     st.subheader(f"📈 {start_date} ~ {end_date} 기온 변화 그래프")
 
     if not filtered_df.empty:
-        # 6. Plotly를 통한 바탕색 흰색 고정 그래프 정의
+        # 6. Plotly 차트 생성 (데이터를 완벽하게 강제 매핑)
         fig = go.Figure()
         
-        # 최고기온 선 (빨간색)
+        # 최고기온 선 추가
         if '최고기온' in filtered_df.columns:
             fig.add_trace(go.Scatter(
                 x=filtered_df['날짜'], 
                 y=filtered_df['최고기온'], 
                 mode='lines',
                 name='최고기온(Max)',
-                line=dict(color='#ff4b4b', width=2)
+                line=dict(color='#ff4b4b', width=2.5)  # 선을 조금 더 두껍게 설정
             ))
             
-        # 최저기온 선 (파란색)
+        # 최저기온 선 추가
         if '최저기온' in filtered_df.columns:
             fig.add_trace(go.Scatter(
                 x=filtered_df['날짜'], 
                 y=filtered_df['최저기온'], 
                 mode='lines',
                 name='최저기온(Min)',
-                line=dict(color='#1f77b4', width=2)
+                line=dict(color='#1f77b4', width=2.5)
             ))
             
-        # 그래프 스타일 강제 지정 (바탕색 흰색 및 축 글자 검은색 고정)
+        # 레이아웃 강제 지정 (바탕색 흰색 고정)
         fig.update_layout(
-            plot_bgcolor='white',    # 내부 차트 영역 배경색
-            paper_bgcolor='white',   # 외부 컴포넌트 영역 배경색
-            font=dict(color='black'),# 전체 글꼴 색상
+            plot_bgcolor='white',    
+            paper_bgcolor='white',   
+            font=dict(color='black'),
             xaxis=dict(
                 showgrid=True, 
-                gridcolor='rgba(220, 220, 220, 0.5)', 
+                gridcolor='rgba(220, 220, 220, 0.7)', 
                 title="Date"
             ),
             yaxis=dict(
                 showgrid=True, 
-                gridcolor='rgba(220, 220, 220, 0.5)', 
+                gridcolor='rgba(220, 220, 220, 0.7)', 
                 title="Temperature (℃)"
             ),
-            margin=dict(l=40, r=40, t=20, b=40),
-            hovermode="x unified"    # 마우스 커서를 올리면 해당 날짜의 최고/최저 기온이 툴팁으로 동시에 팝업
+            margin=dict(l=50, r=50, t=30, b=50),
+            hovermode="x unified"
         )
         
-        # 스트림릿에 Plotly 차트 출력
         st.plotly_chart(fig, use_container_width=True)
         
-        # 7. 하단 데이터 테이블 확장형태 제공
+        # 7. 하단 데이터 테이블
         with st.expander("📊 선택한 기간 데이터 보기 (상세 테이블)"):
             show_cols = ['날짜']
             if '최저기온' in filtered_df.columns: show_cols.append('최저기온')
@@ -149,4 +152,4 @@ if isinstance(date_range, tuple) and len(date_range) == 2:
     else:
         st.warning("⚠️ 선택한 기간에 해당하는 데이터가 없습니다.")
 else:
-    st.info("💡 사이드바에서 달력 창을 열어 시작일과 종료일을 모두 선택해 주세요.")
+    st.info("💡 사이드바에서 시작일과 종료일을 모두 선택해 주세요.")
